@@ -93,6 +93,7 @@ type Subscriber struct {
 	subscribeWg *sync.WaitGroup
 	closing     chan struct{}
 	closed      bool
+	notify      chan struct{}
 
 	logger watermill.LoggerAdapter
 }
@@ -126,6 +127,7 @@ func NewSubscriber(db Beginner, config SubscriberConfig, logger watermill.Logger
 
 		subscribeWg: &sync.WaitGroup{},
 		closing:     make(chan struct{}),
+		notify:      make(chan struct{}, 1),
 
 		logger: logger,
 	}
@@ -192,6 +194,7 @@ func (s *Subscriber) consume(ctx context.Context, topic string, out chan *messag
 			return
 
 		case <-time.After(sleepTime): // Wait if needed
+		case <-s.notify: // If notified, don't wait
 		}
 
 		noMsg, err := s.query(ctx, topic, out, logger)
@@ -392,6 +395,14 @@ ResendLoop:
 			logger.Info("Discarding queued message, context canceled", nil)
 			return false
 		}
+	}
+}
+
+// Notifies the subscriber that there are new messages to consume.
+func (s *Subscriber) Notify() {
+	select {
+	case s.notify <- struct{}{}:
+	default:
 	}
 }
 
